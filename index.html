@@ -179,7 +179,7 @@
     Ứng dụng khóa định danh theo từng thiết bị (iPhone / Android / PC). Gửi <b>Mã Thiết Bị</b> dưới đây cho quản trị viên để nhận Mã Kích Hoạt.
   </p>
   <div style="font-size: 12px; color: #cbd5e1;">MÃ THIẾT BỊ CỦA BẠN (DEVICE ID):</div>
-  <div class="dev-id-box" id="displayDeviceId">...</div>
+  <div class="dev-id-box" id="displayDeviceId" style="font-size:15px;">⚠️ MỞ BẰNG SAFARI ĐỂ LẤY MÃ</div>
   <button onclick="copyDeviceId()" style="background:#334155; color:#fff; padding:8px 14px; font-size:13px; width:auto; margin-bottom:16px; border:none; border-radius:6px; cursor:pointer;">Sao chép Mã Thiết Bị</button>
   <div style="text-align: left;">
     <label style="display:block; font-size:12px; color:#94a3b8; margin-bottom:4px;">Nhập Mã Kích Hoạt (License Key):</label>
@@ -261,11 +261,26 @@
     return result.toUpperCase();
   }
 
+  function _safeGet(k) {
+    try { return localStorage.getItem(k); } catch (e) { return null; }
+  }
+  function _safeSet(k, v) {
+    try { localStorage.setItem(k, v); } catch (e) {}
+  }
   function getDeviceId() {
-    var salt = localStorage.getItem('dim_hw_salt_v2');
+    var salt = _safeGet('dim_hw_salt_v2');
     if (!salt) {
-      salt = Math.random().toString(36).substring(2, 10).toUpperCase() + Date.now().toString(36).slice(-4).toUpperCase();
-      localStorage.setItem('dim_hw_salt_v2', salt);
+      // Tạo mã cố định theo phần cứng trình duyệt nếu localStorage bị khóa, hoặc lưu salt nếu cho phép
+      var hwSig = [
+        navigator.userAgent || '',
+        screen.width + 'x' + screen.height,
+        screen.colorDepth || '24',
+        navigator.hardwareConcurrency || '4',
+        navigator.platform || '',
+        Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+      ].join('#');
+      salt = _sha256(hwSig).slice(0, 12);
+      _safeSet('dim_hw_salt_v2', salt);
     }
     var raw = [
       navigator.userAgent || '',
@@ -297,18 +312,22 @@
     document.body.appendChild(sc);
   }
   function initLock() {
-    var devId = getDeviceId();
-    document.getElementById('displayDeviceId').textContent = devId;
-    var saved = localStorage.getItem('dim_key_v2');
-    if (saved && saved === getExpectedKey(devId)) {
-      unlockApp(devId);
+    try {
+      var devId = getDeviceId();
+      document.getElementById('displayDeviceId').textContent = devId;
+      var saved = _safeGet('dim_key_v2');
+      if (saved && saved === getExpectedKey(devId)) {
+        unlockApp(devId);
+      }
+    } catch (err) {
+      document.getElementById('lockError').textContent = "⚠️ Vui lòng mở bằng trình duyệt Safari/Chrome (không mở qua trình xem trước Zalo).";
     }
   }
   function verifyAndUnlock() {
     var devId = document.getElementById('displayDeviceId').textContent.trim();
     var inp = document.getElementById('inputLicenseKey').value.trim().toUpperCase();
     if (inp === getExpectedKey(devId)) {
-      localStorage.setItem('dim_key_v2', inp);
+      _safeSet('dim_key_v2', inp);
       unlockApp(devId);
     } else {
       document.getElementById('lockError').textContent = "❌ Mã kích hoạt không hợp lệ hoặc sai thiết bị!";
@@ -327,6 +346,12 @@
       e.preventDefault();
     }
   });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('./sw.js').catch(function(){});
+    });
+  }
   initLock();
 </script>
 </body>
